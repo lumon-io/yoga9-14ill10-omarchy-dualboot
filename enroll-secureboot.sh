@@ -14,22 +14,29 @@
 #   bootmgfw.efi is signed by "Windows UEFI CA 2023", NOT "Microsoft Windows
 #   Production PCA 2011". Enrolling only the 2011 cert makes Windows unbootable.
 #   This script enrolls the FIRMWARE's built-in db/KEK, which carries both, and
-#   refuses to proceed unless it can prove the 2023 CA is going in.
+#   refuses to sign anything unless it can prove the 2023 CA is really in db.
 #
 # Nothing here is unrecoverable. If Windows will not boot afterwards:
 #   BIOS (F2) -> Security -> Secure Boot -> Restore Factory Keys, or just
 #   disable Secure Boot. The firmware Boot0002 Windows entry is never touched.
 #
-# Run it twice:
-#   pass 1  (normal boot)      -> backs up keys, checks prerequisites, tells you
-#                                 to put the firmware in Setup Mode
-#   pass 2  (after Setup Mode) -> enrolls keys, signs binaries, verifies
+# The script is re-runnable and picks its own stage:
+#   keys not enrolled, not in Setup Mode -> back up, pre-flight, send you to BIOS
+#   in Setup Mode                        -> enroll, verify, sign
+#   already enrolled                     -> verify and sign only
 
 set -uo pipefail
 
 BACKUP_DIR=/var/lib/sbctl-backup
 EFIVARS=/sys/firmware/efi/efivars
-GUID=8be4df61-93ca-11d2-aa0d-00e098032b8c   # EFI_GLOBAL_VARIABLE
+SBCTL_KEYS=/var/lib/sbctl/keys
+
+# Two different namespaces, and mixing them up costs you an afternoon:
+#   PK, KEK, SetupMode, SecureBoot, and every *Default -> EFI_GLOBAL_VARIABLE
+#   db, dbx, dbt, dbr                                  -> EFI_IMAGE_SECURITY_DATABASE
+GLOBAL_GUID=8be4df61-93ca-11d2-aa0d-00e098032b8c
+SECDB_GUID=d719b2cb-3d3a-4596-a3bc-dad00e67656f
+
 MS_2023="Windows UEFI CA 2023"
 MS_2011="Microsoft Windows Production PCA 2011"
 
@@ -43,11 +50,18 @@ die()  { red "ERROR: $*"; exit 1; }
 [ -d "$EFIVARS" ]    || die "no efivarfs at $EFIVARS - not booted via UEFI?"
 command -v sbctl >/dev/null || die "sbctl not installed:  sudo pacman -S sbctl"
 
-# Read an EFI boolean variable. efivars files carry a 4-byte attribute prefix,
-# so the value we want is byte 5. Parsing this directly avoids depending on
-# sbctl's human-readable output format, which is unicode-decorated.
+efivar_path() {
+    case "$1" in
+        db|dbx|dbt|dbr) echo "$EFIVARS/$1-$SECDB_GUID" ;;
+        *)              echo "$EFIVARS/$1-$GLOBAL_GUID" ;;
+    esac
+}
+
+# Read an EFI boolean. efivars files carry a 4-byte attribute prefix, so the
+# value is byte 5. Reading it directly beats parsing sbctl's decorated output.
 efibool() {
-    local f="$EFIVARS/$1-$GUID"
+    local f
+    f=$(efivar_path "$1")
     [ -f "$f" ] || { echo "missing"; return; }
     od -An -tu1 -j4 -N1 "$f" 2>/dev/null | tr -d ' \n'
 }
@@ -59,19 +73,28 @@ hdr "Firmware state"
 echo "  SetupMode  : $SETUP_MODE   (1 = Setup Mode, keys clearable)"
 echo "  SecureBoot : $SECURE_BOOT   (1 = enforcing)"
 
+ENROLLED=no
+[ -d "$SBCTL_KEYS" ] && [ -n "$(ls -A "$SBCTL_KEYS" 2>/dev/null)" ] && ENROLLED=yes
+echo "  sbctl keys : $ENROLLED"
+
 # ---------------------------------------------------------------------------
-# Backup first. This is our only offline copy of the 2023 CA if the firmware
-# turns out not to expose dbDefault.
+# Backup. Only meaningful before Setup Mode clears things - once PK/KEK/db are
+# gone there is nothing left to copy, and the *Default variables plus the BIOS
+# "Restore Factory Keys" option are what actually get you back.
+#
+# Use cat, not cp: efivarfs entries carry the immutable attribute and cp trips
+# over it, reporting a failure after having read the data perfectly well.
 # ---------------------------------------------------------------------------
 hdr "Backing up current Secure Boot variables"
 mkdir -p "$BACKUP_DIR"
-for v in PK KEK db dbx PKDefault KEKDefault dbDefault; do
-    src="$EFIVARS/$v-$GUID"
+for v in PK KEK db dbx PKDefault KEKDefault dbDefault dbxDefault; do
+    src=$(efivar_path "$v")
     if [ -f "$src" ]; then
-        if cp -f "$src" "$BACKUP_DIR/$v.efivar" 2>/dev/null; then
-            echo "  saved  $v  ($(stat -c%s "$src") bytes)"
+        if cat "$src" > "$BACKUP_DIR/$v.efivar" 2>/dev/null; then
+            echo "  saved  $v  ($(stat -c%s "$BACKUP_DIR/$v.efivar") bytes)"
         else
             echo "  FAILED $v"
+            rm -f "$BACKUP_DIR/$v.efivar"
         fi
     else
         echo "  absent $v"
@@ -80,44 +103,39 @@ done
 echo "  -> $BACKUP_DIR"
 
 # ---------------------------------------------------------------------------
-# Prove the 2023 CA is available to enroll. X.509 subject strings sit as plain
-# ASCII inside the DER, so a raw grep over the variable is a reliable test.
+# Prove the 2023 CA is somewhere we can get at. X.509 subject strings sit as
+# plain ASCII inside the DER, so a raw grep over the variable is a fair test.
 # ---------------------------------------------------------------------------
 hdr "Checking which Microsoft CAs the firmware can give us"
-have_2023=no
 src_used=""
 for v in dbDefault db; do
-    f="$EFIVARS/$v-$GUID"
-    [ -f "$f" ] || continue
+    f=$(efivar_path "$v")
+    [ -f "$f" ] || { printf '  %-10s (not present)\n' "$v"; continue; }
     g2023=no; g2011=no
     grep -qa "$MS_2023" "$f" && g2023=yes
     grep -qa "$MS_2011" "$f" && g2011=yes
     printf '  %-10s 2023 CA: %-3s  2011 PCA: %s\n' "$v" "$g2023" "$g2011"
-    if [ "$g2023" = yes ] && [ -z "$src_used" ]; then
-        have_2023=yes
-        src_used=$v
-    fi
+    [ "$g2023" = yes ] && [ -z "$src_used" ] && src_used=$v
 done
 
-if [ "$have_2023" = yes ]; then
-    grn "  OK - '$MS_2023' is present in $src_used and will be enrolled."
+if [ -n "$src_used" ]; then
+    grn "  OK - '$MS_2023' is reachable via $src_used."
 else
     red "  '$MS_2023' NOT found in dbDefault or db."
-    ylw "  Your Windows Boot Manager is signed by that CA. Enrolling without it"
-    ylw "  means Windows will not boot with Secure Boot on."
+    ylw "  Your Windows Boot Manager is signed by that CA. Without it, Windows"
+    ylw "  will not boot once Secure Boot is on."
     ylw "  Stop here and work out where to get the cert before continuing."
     exit 1
 fi
 
-# sbctl needs --firmware-builtin to pull those certs across. Older builds lack it.
 if ! sbctl enroll-keys --help 2>&1 | grep -q -- "--firmware-builtin"; then
     die "this sbctl has no --firmware-builtin flag; upgrade sbctl before continuing"
 fi
 
 # ---------------------------------------------------------------------------
-# Pass 1: not in Setup Mode yet. Stop and hand over to the firmware.
+# Stage 1: nothing enrolled and the firmware still holds its factory keys.
 # ---------------------------------------------------------------------------
-if [ "$SETUP_MODE" != "1" ]; then
+if [ "$SETUP_MODE" != "1" ] && [ "$ENROLLED" = no ]; then
     hdr "Next step: put the firmware in Setup Mode"
     cat <<'PASS1'
   Everything checked out. The firmware still holds its factory keys, so
@@ -138,37 +156,51 @@ PASS1
 fi
 
 # ---------------------------------------------------------------------------
-# Pass 2: Setup Mode is live. Enroll.
+# Stage 2: Setup Mode is live and we have not enrolled yet. Enroll.
 # ---------------------------------------------------------------------------
-hdr "Setup Mode is active - ready to enroll"
-echo "  This replaces the platform keys with:"
-echo "    - a new key pair generated here, for signing Limine and the UKI"
-echo "    - Microsoft's certs from the firmware's built-in db and KEK, which"
-echo "      keeps Windows bootable and lets Windows still deliver dbx updates"
-echo
-read -rp "  Proceed? [y/N] " ans
-case "$ans" in
-    y|Y) ;;
-    *) echo "aborted"; exit 0 ;;
-esac
+if [ "$SETUP_MODE" = "1" ]; then
+    hdr "Setup Mode is active - ready to enroll"
+    echo "  This replaces the platform keys with:"
+    echo "    - a new key pair generated here, for signing Limine and the UKI"
+    echo "    - Microsoft's certs from the firmware's built-in db and KEK, which"
+    echo "      keeps Windows bootable and lets Windows still deliver dbx updates"
+    echo
+    read -rp "  Proceed? [y/N] " ans
+    case "$ans" in
+        y|Y) ;;
+        *) echo "aborted"; exit 0 ;;
+    esac
 
-hdr "Creating keys"
-if [ -d /var/lib/sbctl/keys ] && [ -n "$(ls -A /var/lib/sbctl/keys 2>/dev/null)" ]; then
-    ylw "  keys already exist in /var/lib/sbctl/keys - reusing them"
+    hdr "Creating keys"
+    if [ "$ENROLLED" = yes ]; then
+        ylw "  keys already exist in $SBCTL_KEYS - reusing them"
+    else
+        sbctl create-keys || die "sbctl create-keys failed"
+    fi
+
+    hdr "Enrolling keys"
+    # -m  : Microsoft's certs as sbctl bundles them
+    # -f  : the firmware's own built-in db and KEK - this is what carries 2023
+    sbctl enroll-keys -m -f db,KEK \
+        || die "sbctl enroll-keys failed. If Windows stops booting, recover with BIOS -> Restore Factory Keys."
 else
-    sbctl create-keys || die "sbctl create-keys failed"
+    hdr "Keys already enrolled - skipping to verification and signing"
 fi
 
-hdr "Enrolling keys"
-# -m  : Microsoft's certs as sbctl bundles them
-# -f  : the firmware's own built-in db and KEK - this is what carries the 2023 CA
-sbctl enroll-keys -m -f db,KEK \
-    || die "sbctl enroll-keys failed. If Windows stops booting, recover with BIOS -> Restore Factory Keys."
-
+# ---------------------------------------------------------------------------
+# Verify what is actually in db now. This is the gate: if the 2023 CA is not
+# there, signing Limine would only get you a machine that boots Linux and not
+# Windows, which is the wrong half of the trade.
+# ---------------------------------------------------------------------------
 hdr "Verifying what actually landed in db"
-dbf="$EFIVARS/db-$GUID"
+dbf=$(efivar_path db)
+if [ ! -f "$dbf" ]; then
+    red "  db variable not present at $dbf"
+    red "  Enrollment did not take. Leave Secure Boot off."
+    exit 1
+fi
 if grep -qa "$MS_2023" "$dbf"; then
-    grn "  present: $MS_2023"
+    grn "  present: $MS_2023   <- this is what boots your Windows"
 else
     red "  MISSING: $MS_2023"
     red "  Windows will NOT boot with Secure Boot enabled."
@@ -192,6 +224,7 @@ fi
 # ---------------------------------------------------------------------------
 hdr "Signing boot binaries"
 signed=0
+failed=0
 while IFS= read -r f; do
     case "$f" in
         */EFI/Microsoft/*) continue ;;   # Microsoft-signed already; never re-sign
@@ -201,11 +234,12 @@ while IFS= read -r f; do
         signed=$((signed + 1))
     else
         red "     failed: $f"
+        failed=$((failed + 1))
     fi
 done < <(find /boot/EFI /efi/EFI -type f -iname '*.efi' 2>/dev/null | sort -u)
 
 [ "$signed" -gt 0 ] || die "signed nothing - is /boot mounted?"
-echo "  signed $signed binaries"
+echo "  signed $signed binaries, $failed failures"
 
 hdr "sbctl verify"
 sbctl verify
@@ -228,5 +262,5 @@ cat <<'DONE'
      VirtualizationBasedSecurityStatus should be 2 (running), and face and
      fingerprint should be offered again at the lock screen.
 
-  Backups of the original firmware keys are in /var/lib/sbctl-backup.
+  Backups of the firmware key variables are in /var/lib/sbctl-backup.
 DONE

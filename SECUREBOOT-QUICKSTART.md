@@ -190,9 +190,13 @@ sudo sbctl status                 # want: Setup Mode: Enabled
 sudo sbctl create-keys
 sudo sbctl enroll-keys -m -f db,KEK
 
-# confirm it landed, BEFORE enabling Secure Boot
+# confirm it landed, BEFORE enabling Secure Boot.
+# NOTE the different GUID: db and dbx live under EFI_IMAGE_SECURITY_DATABASE
+# (d719b2cb-...), while PK, KEK, SetupMode, SecureBoot and every *Default
+# variable live under EFI_GLOBAL_VARIABLE (8be4df61-...). Grepping db under the
+# global GUID just reports "No such file or directory".
 sudo grep -qa 'Windows UEFI CA 2023' \
-  /sys/firmware/efi/efivars/db-8be4df61-93ca-11d2-aa0d-00e098032b8c && echo SAFE
+  /sys/firmware/efi/efivars/db-d719b2cb-3d3a-4596-a3bc-dad00e67656f && echo SAFE
 
 # sign the bootloader AND the UKI; -s registers them for the pacman hook
 sudo sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
