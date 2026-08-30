@@ -96,12 +96,14 @@ Audio and auto-rotate are expected to fail here and are fixable post-install.
 These are the places the research could be wrong. Ranked by how much damage a wrong
 answer does.
 
-1. **Lenovo consumer BIOS supports custom Secure Boot key enrollment.** The whole
-   "keep Windows Hello" plan depends on it. Some consumer BIOSes only offer
-   on/off plus "restore factory keys". If Custom Mode is missing, the fallback is
-   Secure Boot off and degraded Hello. **Check this in BIOS before installing.**
+1. ~~**Lenovo consumer BIOS supports custom Secure Boot key enrollment.**~~
+   **RESOLVED 2026-08-29 — verified in BIOS Q9CN30WW.** Security → Secure Boot offers
+   **"Reset to Setup Mode"** ("Clear PK, disable secure boot and enter Setup Mode"),
+   which is exactly what `sbctl` requires, plus **"Restore Factory Keys"** as rollback.
+   Note there is no "Custom" Secure Boot Mode on this firmware — Standard/User Mode is
+   all it exposes, and that is fine. The keep-Windows-Hello plan is viable.
 2. **Omarchy tolerates a separate 2 GB ESP-flagged boot partition.** Its installer
-   assumes ESP and `/boot` are one partition.
+   assumes ESP and `/boot` are one partition. ← now the biggest unknown
 3. **Limine detects Windows on a separate ESP.** Reported to fail sometimes.
 4. **Bluetooth `btintel_pcie` works on this exact adapter.**
 5. **BitLocker is off.** Inferred from a registry hint, not confirmed.

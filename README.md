@@ -109,6 +109,32 @@ and sign Limine yourself. Secure Boot goes back on, VBS restarts, Hello returns.
 Procedure in [SPEC.md](SPEC.md) Phase 5. The critical flag is `sbctl enroll-keys -m`
 — **without `-m`, Microsoft's keys are excluded and Windows stops booting.**
 
+### Does this BIOS actually allow it? Yes — verified
+
+Checked in BIOS **Q9CN30WW** (Security → Secure Boot). This is the prerequisite the
+whole plan rests on, so confirm it on your own machine before starting:
+
+| Setting | Factory value | Meaning |
+|---|---|---|
+| Secure Boot Status | Enabled | |
+| Platform Mode | User Mode | Factory PK enrolled |
+| Secure Boot Mode | **Standard** | **There is no "Custom" mode on this firmware** |
+| Reset to Setup Mode | `[Enter]` | "Clear PK, disable secure boot and enter Setup Mode" — **this is what `sbctl` needs** |
+| Restore Factory Keys | `[Enter]` | Restores PK, KEK, db, dbx — one-click rollback |
+| Allow Microsoft 3rd Party UEFI CA | **Disabled** | The CA that signs shim. Irrelevant for Limine + custom keys |
+| Enhanced Windows Biometric Security | Enabled | ESS, at the firmware level — the Hello dependency above |
+| Intel Platform Trust Technology | Enabled | fTPM. **Never use "Clear Intel PTT Key"** — it destroys your Hello PIN and BitLocker keys |
+| Administrator Password | Not Set | Nothing stops someone restoring factory keys; consider setting one |
+
+Guides written for ASUS boards tell you to set "Secure Boot Mode: Custom". That option
+does not exist here. **Use "Reset to Setup Mode" instead**, enroll, then set Secure Boot
+back to Enabled — Platform Mode returns to *User Mode* and Secure Boot Mode stays
+*Standard*. That is correct, not a failed enrollment.
+
+> **If you photograph your own BIOS, don't publish the shots as-is.** The Information
+> page exposes your Lenovo serial, UUID, MTM and OA3 key ID, and the Security page shows
+> the SSD serial. Redact before posting anywhere.
+
 ---
 
 ## The 260 MB ESP problem

@@ -90,7 +90,10 @@ Order is strict — enrolling the config checksum *after* signing invalidates th
 sudo nvim /etc/default/limine     # "quiet splash" -> "quiet"
 sudo limine-mkinitcpio
 
-# BIOS: Secure Boot -> Custom/Setup Mode, clear existing keys, reboot
+# BIOS (F2) -> Security -> Secure Boot -> "Reset to Setup Mode" [Enter], then reboot.
+# That entry clears the PK, disables Secure Boot and enters Setup Mode in one action.
+# This firmware has NO "Custom" Secure Boot Mode - Standard/User Mode is all it offers,
+# and "Reset to Setup Mode" is the supported way in. Verified on BIOS Q9CN30WW.
 sudo sbctl status                 # must show: Setup Mode: Enabled
 sudo sbctl create-keys
 sudo sbctl enroll-keys -m         # -m is MANDATORY: without Microsoft's keys, Windows will not boot
@@ -106,7 +109,27 @@ sudo sbctl sign -s /boot/EFI/limine/limine_x64.efi
 sudo sbctl verify                                # only limine_x64.efi should be signed
 ```
 
-Then in BIOS: Secure Boot ON (Custom mode), boot order Limine first, Windows Boot Manager second.
+Then in BIOS: Security → Secure Boot → **Enabled**. Once your PK is enrolled, *Platform
+Mode* should read **User Mode** again and *Secure Boot Mode* stays **Standard** — that is
+correct on this firmware, not a sign the custom keys failed. Set the boot order under
+Boot → UEFI Boot Order: Limine first, Windows Boot Manager second.
+
+**If enrollment goes wrong:** Security → Secure Boot → **Restore Factory Keys** puts PK,
+KEK, db and dbx back to factory defaults. One-click rollback; Windows boots again.
+
+**Two BIOS specifics on this machine:**
+
+- *Allow Microsoft 3rd Party UEFI CA* is **Disabled** from the factory. That is the CA
+  that signs shim, so a shim-based distro would not boot Secure Boot without enabling it.
+  Irrelevant for the Limine + custom keys path — and `sbctl enroll-keys -m` enrolls
+  Microsoft's certs from its own bundle regardless of this toggle.
+- *Administrator Password* is **Not Set**. With no BIOS password, anyone with physical
+  access can walk into this menu and hit "Restore Factory Keys", undoing your enrollment.
+  Consider setting one after Phase 5 completes, since the whole point here is preserving
+  a security posture.
+
+**Do not touch "Clear Intel PTT Key."** Intel PTT is the firmware TPM holding your Hello
+PIN and any BitLocker keys. Clearing it is unrelated to Secure Boot and will destroy both.
 
 **Sign only `limine_x64.efi`.** Do not sign kernels, initramfs, or the `BOOTX64.EFI` fallback loader.
 
