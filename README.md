@@ -202,6 +202,39 @@ Run [`collect-hardware.ps1`](collect-hardware.ps1) elevated and compare against
 audio, Wi-Fi, touchscreen and pen from the live environment tells you more than any
 research. Nothing is written to disk.
 
+Run [`live-usb-check.sh`](live-usb-check.sh) from the live environment — read-only,
+writes one report file:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/lumon-io/yoga9-14ill10-omarchy-dualboot/main/live-usb-check.sh
+bash live-usb-check.sh /run/media/<your-usb>     # or just: bash live-usb-check.sh
+```
+
+It checks every row of the compatibility matrix above and prints PASS/WARN/FAIL plus
+a decision gate. **Audio and auto-rotate are expected to FAIL there** — those are the
+known-fixable ones, not a reason to abort.
+
+## Working across the reboot
+
+Notes for anyone doing this with an AI assistant, or just keeping their own records —
+the live USB is a context break, so plan for it.
+
+| Phase | What works |
+|---|---|
+| **Windows, pre-install** | Normal session. Run `collect-hardware.ps1`, do the pre-flight. |
+| **Live USB** | No session — the Windows install it lived on is not running. Use `live-usb-check.sh`, save the report to a USB stick, reboot to Windows and hand the file over. Rebooting back is free at this stage since nothing is installed yet. |
+| **During install** | Don't try. The installer owns the screen. Keep this repo open on your phone; photograph anything that goes wrong. |
+| **Omarchy, post-install** | Normal session again — install the assistant on Linux, `git clone` this repo, continue from [SPEC.md](SPEC.md). |
+
+Optionally you *can* run an assistant inside the live environment: it needs working
+Wi-Fi (which is itself one of the tests, so it doubles as a check). The archiso overlay
+defaults to 2 GB — press `e` at the boot menu and add `cow_spacesize=8G` if you plan to
+install packages there. Everything is lost on reboot, including the transcript, which is
+why the report file is the more reliable path.
+
+The repo itself is the handoff mechanism: it survives the reboot, and a fresh session on
+the Linux side can pick up from `SPEC.md` and `INSTALL-LOG.md` with no lost context.
+
 ## Files
 
 | File | Purpose |
@@ -210,6 +243,7 @@ research. Nothing is written to disk.
 | `SPEC.md` | The step-by-step install procedure |
 | `HARDWARE.md` | Full generated hardware report from the reference machine |
 | `collect-hardware.ps1` | Read-only collector; run on your machine to compare |
+| `live-usb-check.sh` | Read-only hardware check to run from the live USB |
 | `INSTALL-LOG.md` | Actual results, filled in during the install |
 
 ## Sources
