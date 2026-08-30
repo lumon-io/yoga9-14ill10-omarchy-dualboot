@@ -150,7 +150,11 @@ if have pactl && pactl list sinks short 2>/dev/null | grep -qi dummy; then
 elif have pactl; then
     pactl list sinks short 2>/dev/null | code
 fi
-echo "      -> Play a test sound now: speaker-test -c2 -twav -l1"
+say ""
+say "> Note: on a bare TTY there is no user session, so PipeWire is not running and"
+say "> \`pactl\` reports nothing. That is expected — the ALSA-level checks above are"
+say "> the meaningful ones in this environment."
+echo "      -> Test audio by hand:  speaker-test -c2 -twav -l1   (expect silence)"
 
 # -------------------------------------------------------------- touch / pen --
 hdr "Touchscreen + pen — Intel THC / QuickI2C"
@@ -167,6 +171,11 @@ grep -qi 'Name=.*touchscreen' /proc/bus/input/devices 2>/dev/null \
 grep -qiE 'Name=.*(pen|stylus)' /proc/bus/input/devices 2>/dev/null \
     && result PASS "Pen input device present" \
     || result WARN "No pen input device"
+say ""
+say "> An input device existing is not proof it reports events. On a TTY there is no"
+say "> cursor to watch, so confirm with \`evtest\`: pick the touchscreen and touch it"
+say "> (expect \`ABS_MT_POSITION_X\`), then the pen (expect \`ABS_PRESSURE\`)."
+echo "      -> Verify touch/pen by hand:  evtest"
 
 # -------------------------------------------------------------- fingerprint --
 hdr "Fingerprint — Goodix 27c6:650c"
