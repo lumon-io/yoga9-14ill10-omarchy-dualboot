@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# sb - short front door for the Secure Boot work, so nothing long has to be
+# retyped from a photo of another screen.
+#
+#   sudo ~/dualboot/sb          check what state Secure Boot is in. Changes nothing.
+#   sudo ~/dualboot/sb go       do the next step: enroll if needed, then sign.
+#
+# Both pull the latest repo first, so a fix made on the Windows side is picked
+# up without a separate git command.
+
+set -uo pipefail
+
+DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+red() { printf '\033[31m%s\033[0m\n' "$*"; }
+ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
+
+if [ "$(id -u)" -ne 0 ]; then
+    red "must run as root. Try:"
+    echo "  sudo $DIR/sb ${*:-}"
+    exit 1
+fi
+
+# Pull as the human, not as root - otherwise root ends up owning objects in
+# their working tree and the next plain 'git pull' fails on permissions.
+if git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    printf '\033[1m== Updating %s ==\033[0m\n' "$DIR"
+    if [ -n "${SUDO_USER:-}" ]; then
+        sudo -u "$SUDO_USER" git -C "$DIR" pull --ff-only 2>&1 | sed 's/^/  /' \
+            || ylw "  could not update - carrying on with the local copy"
+    else
+        git -C "$DIR" pull --ff-only 2>&1 | sed 's/^/  /' \
+            || ylw "  could not update - carrying on with the local copy"
+    fi
+else
+    ylw "not a git checkout - using the local copy as-is"
+fi
+
+case "${1:-check}" in
+    check|status|"")
+        exec bash "$DIR/enroll-secureboot.sh" --check
+        ;;
+    go|enroll|sign)
+        exec bash "$DIR/enroll-secureboot.sh"
+        ;;
+    *)
+        cat <<'USAGE'
+
+usage:
+  sudo ~/dualboot/sb        report Secure Boot state, read-only
+  sudo ~/dualboot/sb go     enroll keys if needed, then sign Limine and the UKI
+
+USAGE
+        exit 2
+        ;;
+esac

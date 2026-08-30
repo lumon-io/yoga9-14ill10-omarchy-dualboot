@@ -27,6 +27,15 @@
 
 set -uo pipefail
 
+# --check reports state and changes nothing: no backup written, no keys
+# enrolled, no binaries signed. Used by 'sb' with no arguments.
+CHECK_ONLY=0
+case "${1:-}" in
+    -c|--check) CHECK_ONLY=1 ;;
+    "") ;;
+    *) echo "usage: $0 [--check]" >&2; exit 2 ;;
+esac
+
 BACKUP_DIR=/var/lib/sbctl-backup
 EFIVARS=/sys/firmware/efi/efivars
 SBCTL_KEYS=/var/lib/sbctl/keys
@@ -86,21 +95,25 @@ echo "  sbctl keys : $ENROLLED"
 # over it, reporting a failure after having read the data perfectly well.
 # ---------------------------------------------------------------------------
 hdr "Backing up current Secure Boot variables"
-mkdir -p "$BACKUP_DIR"
-for v in PK KEK db dbx PKDefault KEKDefault dbDefault dbxDefault; do
-    src=$(efivar_path "$v")
-    if [ -f "$src" ]; then
-        if cat "$src" > "$BACKUP_DIR/$v.efivar" 2>/dev/null; then
-            echo "  saved  $v  ($(stat -c%s "$BACKUP_DIR/$v.efivar") bytes)"
+if [ "$CHECK_ONLY" = 1 ]; then
+    echo "  skipped - --check writes nothing"
+else
+    mkdir -p "$BACKUP_DIR"
+    for v in PK KEK db dbx PKDefault KEKDefault dbDefault dbxDefault; do
+        src=$(efivar_path "$v")
+        if [ -f "$src" ]; then
+            if cat "$src" > "$BACKUP_DIR/$v.efivar" 2>/dev/null; then
+                echo "  saved  $v  ($(stat -c%s "$BACKUP_DIR/$v.efivar") bytes)"
+            else
+                echo "  FAILED $v"
+                rm -f "$BACKUP_DIR/$v.efivar"
+            fi
         else
-            echo "  FAILED $v"
-            rm -f "$BACKUP_DIR/$v.efivar"
+            echo "  absent $v"
         fi
-    else
-        echo "  absent $v"
-    fi
-done
-echo "  -> $BACKUP_DIR"
+    done
+    echo "  -> $BACKUP_DIR"
+fi
 
 # ---------------------------------------------------------------------------
 # Prove the 2023 CA is somewhere we can get at. X.509 subject strings sit as
@@ -137,6 +150,14 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$SETUP_MODE" != "1" ] && [ "$ENROLLED" = no ]; then
     hdr "Next step: put the firmware in Setup Mode"
+    if [ "$CHECK_ONLY" = 1 ]; then
+        echo "  Nothing enrolled yet, and the firmware still holds its factory keys."
+        echo "  Reboot -> F2 -> Security -> Secure Boot -> 'Reset to Setup Mode', F10,"
+        echo "  boot back into Omarchy, then run:  sudo ~/dualboot/sb go"
+        echo
+        echo "  Do NOT touch 'Clear Intel PTT Key' - it wipes the TPM and your Hello PIN."
+        exit 0
+    fi
     cat <<'PASS1'
   Everything checked out. The firmware still holds its factory keys, so
   sbctl cannot enroll ours yet.
@@ -158,6 +179,13 @@ fi
 # ---------------------------------------------------------------------------
 # Stage 2: Setup Mode is live and we have not enrolled yet. Enroll.
 # ---------------------------------------------------------------------------
+if [ "$SETUP_MODE" = "1" ] && [ "$CHECK_ONLY" = 1 ]; then
+    hdr "Setup Mode is active - keys not enrolled yet"
+    echo "  The firmware is waiting for keys. To enroll and sign, run:"
+    echo "      sudo ~/dualboot/sb go"
+    exit 0
+fi
+
 if [ "$SETUP_MODE" = "1" ]; then
     hdr "Setup Mode is active - ready to enroll"
     echo "  This replaces the platform keys with:"
@@ -222,6 +250,23 @@ fi
 # 'sbctl sign -s' records each file in sbctl's database, so the pacman hook
 # re-signs them automatically after a limine or kernel upgrade.
 # ---------------------------------------------------------------------------
+if [ "$CHECK_ONLY" = 1 ]; then
+    hdr "Signature status of the boot binaries"
+    sbctl verify
+    hdr "sbctl status"
+    sbctl status
+    hdr "Verdict"
+    if [ "$SECURE_BOOT" = "1" ]; then
+        grn "  Secure Boot is ON and your keys are enrolled. Nothing to do."
+    else
+        echo "  Keys are enrolled and '$MS_2023' is in db, so Windows will still boot."
+        echo "  If anything above is listed as not signed, run:  sudo ~/dualboot/sb go"
+        echo "  Once everything is signed: reboot -> F2 -> Secure Boot -> Enabled -> F10,"
+        echo "  and boot Omarchy first."
+    fi
+    exit 0
+fi
+
 hdr "Signing boot binaries"
 signed=0
 failed=0

@@ -1,4 +1,6 @@
 # Shell scripts MUST keep LF endings - CRLF breaks them on Linux
+# ("/usr/bin/env: 'bash\r': No such file or directory")
 *.sh text eol=lf
+sb  text eol=lf
 *.ps1 text eol=crlf
 *.md text eol=lf
