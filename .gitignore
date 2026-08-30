@@ -12,3 +12,6 @@ desktop.ini
 
 # Live run output - machine-specific, regenerate rather than commit
 live-report.md
+
+# Elevated pre-flight output - machine-specific
+preflight-report.txt
