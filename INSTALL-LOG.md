@@ -30,7 +30,11 @@ Template per attempt — copy the block, don't overwrite previous entries.
       `ishS_MEU_aligned.bin` (514.5 KB), both `$CPD`/`ISHM` images from
       `FwImage/0003/` (0003 = Lunar Lake). Gitignored, not redistributable.
 - [ ] Backup — **in progress 2026-08-30**
-- [ ] BIOS updated — queued after the backup
+- [x] BIOS update — **none available.** Vantage reports no BIOS update; `Q9CN30WW`
+      (2026-04-15) appears to be current. Lenovo's download pages return 403 to
+      automated checks, so Vantage is the authority. The goal of this step was to
+      avoid a firmware update landing *after* Phase 5 and wiping enrolled Secure
+      Boot keys — already satisfied if no update exists.
 
 #### Observed: the Secure Boot → VBS chain, both directions
 
