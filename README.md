@@ -246,6 +246,8 @@ the Linux side can pick up from `SPEC.md` and `INSTALL-LOG.md` with no lost cont
 | `preflight-check.ps1` | **Elevated** Windows pre-flight: BitLocker, shrink headroom, Fast Startup |
 | `LIVE-QUICKSTART.md` | Four commands to run from the live USB |
 | `live-usb-check.sh` | Read-only hardware check to run from the live USB |
+| `SECUREBOOT-QUICKSTART.md` | **Copy/paste from Omarchy** — re-enable Secure Boot without losing Windows Hello |
+| `enroll-secureboot.sh` | Enrolls custom keys, signs Limine and the UKI, verifies Windows stays bootable |
 | `INSTALL-LOG.md` | Actual results, filled in during the install |
 
 ## Sources
