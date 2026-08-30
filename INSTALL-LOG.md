@@ -114,20 +114,100 @@ Audio and auto-rotate are expected to fail here and are fixable post-install.
 
 ### Partitioning
 
-- Shrink amount actually achieved:
-- Resulting layout:
+- Shrink amount actually achieved: 250.00 GB, as planned.
+- Resulting layout (`lsblk`, verified 2026-08-30 post-install):
+
+  | Part | PARTLABEL | Size | Contents |
+  |---|---|---|---|
+  | `nvme0n1p1` | EFI system partition | 260M | Windows ESP, `SYSTEM_DRV` — **untouched** |
+  | `nvme0n1p2` | Microsoft reserved partition | 16M | untouched |
+  | `nvme0n1p3` | Basic data partition | 701.6G | `Windows-SSD` NTFS — untouched |
+  | `nvme0n1p4` | Basic data partition | 2G | `WINRE_DRV` — untouched |
+  | `nvme0n1p5` | OMARCHY_EFI | 2G | new, FAT32, mounted at `/boot` |
+  | `nvme0n1p6` | OMARCHY_ROOT | 248G | new, LUKS2 → btrfs `OMARCHY` |
+
+  Windows' ESP was left alone and Omarchy built its own. That matters — see
+  Bootloader below.
 
 ### Install
 
-- Path taken: guided free-space install / manual archinstall
-- Did Omarchy accept a separate 2 GB boot partition?
-- Errors hit:
+- Path taken: _(not recorded — fill in.)_ Whatever it was, it landed the new
+  partitions in the 250 GB gap without touching the Windows ones.
+- Did Omarchy accept a separate 2 GB boot partition? **Yes** — `nvme0n1p5`
+  (`OMARCHY_EFI`, 2 GB, FAT32) is mounted at `/boot` and holds the UKI at
+  `/boot/EFI/Linux/omarchy_linux.efi`. Assumption 2 resolved.
+- Errors hit: none at install time. The problem surfaced at first boot — see below.
 
-### Bootloader
+### Bootloader — **Windows entry missing on first boot; fixed 2026-08-30**
 
-- [ ] `limine-scan` detected Windows
-- [ ] Both entries boot
-- Fallback needed?
+- [x] ~~`limine-scan` detected Windows~~ — **NO. Assumption 3 confirmed as a real
+      failure on this machine.** After install, the Limine menu offered Omarchy only.
+- [ ] Both entries boot — **not yet confirmed.** The entry is written and
+      `limine-update` accepts it, but Windows has not actually been booted
+      through Limine yet. Tick this only after it has.
+- Fallback needed? **Yes, one config entry.**
+
+#### What actually happened
+
+Nothing was damaged. Every Windows component survived the install intact:
+
+- `EFI/Microsoft/Boot/bootmgfw.efi` present on `nvme0n1p1`, dated 2026-08-23
+- the firmware entry `Boot0002* Windows Boot Manager` still in `efibootmgr -v`,
+  pointing at `HD(1,GPT,54ea1b94-7dee-4187-a8b2-a1d486fb5170)`
+- `Windows-SSD` and `WINRE_DRV` mount clean
+
+The cause is the separate-ESP layout from Partitioning above. `limine-entry-tool`
+generates entries only for the ESP it lives on (`ESP_PATH="/boot"` =
+`nvme0n1p5`). It never looks at `nvme0n1p1`, so `/boot/limine.conf` was written
+with exactly one OS entry and no Windows.
+
+So assumptions 2 and 3 interact: *because* Omarchy accepted its own boot
+partition, Limine could not see Windows. Getting 2 right is what made 3 fail.
+
+#### Fix — manual chainload entry
+
+Appended to `/boot/limine.conf`:
+
+```
+/Windows
+comment: Windows Boot Manager
+protocol: efi
+path: guid(54ea1b94-7dee-4187-a8b2-a1d486fb5170):/EFI/Microsoft/Boot/bootmgfw.efi
+```
+
+The GUID is `nvme0n1p1`'s GPT partition UUID. Limine's `guid()` resolver searches
+filesystem and GPT partition GUIDs across the whole disk in one namespace
+(`/usr/share/doc/limine/CONFIG.md`), so it reaches an ESP that is not its own.
+`hdd(1:1):/...` would also work but breaks if disk enumeration changes.
+
+Placement matters: the entry goes at the **end** of the file. `default_entry: 2`
+is a positional index, and appending leaves Omarchy at position 2.
+
+- Original saved to `/boot/limine.conf.prewindows`.
+- Ran `limine-update` afterwards and re-grepped: the entry **survives config
+  regeneration**, so kernel updates will not drop it. `limine-entry-tool` only
+  rewrites the block tagged with its `machine-id` comment.
+- **`omarchy refresh limine` WILL delete it** — that command does
+  `mv /boot/limine.conf /boot/limine.conf.bak` then copies the stock default over
+  it. If you ever run it, re-append the block above.
+- Independent fallback, if the Limine entry is ever lost: F12 one-time boot menu,
+  or `sudo efibootmgr -n 0002 && reboot`. The firmware entry is untouched by any
+  of this.
+
+#### Versions at time of fix (2026-08-30)
+
+| Field | Value |
+|---|---|
+| BIOS version | `Q9CN30WW` (2026-04-16), Lenovo `83LC` |
+| Omarchy | 4.0.1-1 |
+| Kernel — running | `7.1.8-arch1-3` |
+| Kernel — installed, pending reboot | `7.1.9-arch1-2` |
+| Mesa | `1:26.2.1-1` |
+| alsa-lib | `1.2.16.1-1` |
+
+**Still below the 7.2 Arc freeze fix**, both running and pending. The live-USB
+note said to recheck `uname -r` after install — done, and it does not clear the
+bar. GPU-under-load remains untested and is still the open risk.
 
 ### Secure Boot re-enable
 
@@ -161,9 +241,15 @@ answer does.
    which is exactly what `sbctl` requires, plus **"Restore Factory Keys"** as rollback.
    Note there is no "Custom" Secure Boot Mode on this firmware — Standard/User Mode is
    all it exposes, and that is fine. The keep-Windows-Hello plan is viable.
-2. **Omarchy tolerates a separate 2 GB ESP-flagged boot partition.** Its installer
-   assumes ESP and `/boot` are one partition. ← now the biggest unknown
-3. **Limine detects Windows on a separate ESP.** Reported to fail sometimes.
+2. ~~**Omarchy tolerates a separate 2 GB ESP-flagged boot partition.**~~
+   **RESOLVED 2026-08-30 — yes.** `nvme0n1p5` (`OMARCHY_EFI`, 2 GB) is mounted at
+   `/boot` and boots. The installer had no trouble with it.
+3. ~~**Limine detects Windows on a separate ESP.**~~
+   **RESOLVED 2026-08-30 — it does NOT.** Confirmed failure on this machine, not
+   an intermittent one: `limine-entry-tool` scans only its own `ESP_PATH`, so a
+   Windows ESP on another partition is structurally invisible to it. Fixed with a
+   manual `guid()` chainload entry — see the Bootloader section. Note this is a
+   direct consequence of 2 succeeding.
 4. **Bluetooth `btintel_pcie` works on this exact adapter.** Run 1 was inconclusive:
    driver present, no adapter registered. Recheck on the correct ISO.
 5. ~~**BitLocker is off.**~~ **RESOLVED 2026-08-29** — confirmed elevated:
