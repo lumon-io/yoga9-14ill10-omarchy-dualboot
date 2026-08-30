@@ -1,5 +1,27 @@
 # Secure Boot quickstart — copy/paste from Omarchy
 
+## The two commands
+
+Once the repo is cloned, these are the only things you ever need to type. Both
+update the repo first, so a fix made from the Windows side lands automatically.
+
+```bash
+sudo ~/dualboot/sb
+```
+
+Reports where Secure Boot stands and names the single next command. Changes nothing.
+
+```bash
+sudo ~/dualboot/sb go
+```
+
+Does the next step: enrolls keys if the firmware is in Setup Mode, then verifies
+`db` and signs Limine and the UKI. Safe to re-run — it works out its own stage.
+
+Everything below is the long form, for reference or if `sb` is unavailable.
+
+---
+
 Everything you need to re-enable Secure Boot with custom keys, so **Limine boots and
 Windows Hello keeps working**. Written to be pasted straight into a terminal.
 
