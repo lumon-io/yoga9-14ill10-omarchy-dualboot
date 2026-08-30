@@ -9,8 +9,10 @@ partitioned, formatted, or installed. Safe to abort at any point.
    Required: the Omarchy ISO is not Microsoft-signed, and this machine ships with
    *Allow Microsoft 3rd Party UEFI CA* disabled, so even shim-signed distros are
    rejected. Windows Hello biometrics break while it's off — expected, restored later.
-2. In Windows first: `powercfg /h off` (elevated). Without it the Windows filesystem
-   stays hibernated and the report can't be written back.
+2. In Windows first: `powercfg /h off` (elevated), then **shut down fully, not restart**.
+   Verify with `powercfg /a` — *Hibernate* and *Fast Startup* should both read as
+   unavailable. Ignore `HiberbootEnabled` in the registry; it stays at `1` and is only
+   a preference flag. Without this the Windows filesystem
 3. Boot the USB (F12 for the boot menu).
 
 ## Run the check

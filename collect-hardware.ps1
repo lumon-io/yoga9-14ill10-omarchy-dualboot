@@ -241,9 +241,23 @@ if ($esp) {
 # ------------------------------------------------------------- pre-flight ---
 "## Pre-flight blockers"
 ""
-$hiber = Get-Safe { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name HiberbootEnabled -EA Stop).HiberbootEnabled }
-$hiberMsg = if ($hiber -eq 1) { "**ON — must disable with ``powercfg /h off``**" } else { "off (good)" }
-"- Fast Startup / hiberboot: $hiberMsg"
+# Fast Startup needs BOTH flags. `powercfg /h off` clears HibernateEnabled but
+# leaves HiberbootEnabled at 1, so reading HiberbootEnabled alone reports a false
+# "still on" after the user has correctly disabled it. Fast Startup cannot operate
+# without hibernation, so HibernateEnabled=0 means it is off regardless.
+$hiberboot = Get-Safe { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name HiberbootEnabled -EA Stop).HiberbootEnabled }
+$hibernate = Get-Safe { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -EA Stop).HibernateEnabled }
+$hiberfil  = Test-Path 'C:\hiberfil.sys'
+if ($hibernate -eq 0 -or -not $hiberfil) {
+    "- Fast Startup: **off / inoperative** (good) — ``HibernateEnabled=$hibernate``, hiberfil.sys present: $hiberfil"
+    if ($hiberboot -eq 1) {
+        "  - ``HiberbootEnabled`` is still ``1``, but that is only a preference flag. Fast"
+        "    Startup cannot run without hibernation, so this is fine. Do not chase it."
+    }
+} else {
+    "- Fast Startup: **ON — disable with ``powercfg /h off`` (elevated), then shut down fully, not restart**"
+}
+"- Verify independently with ``powercfg /a``: both *Hibernate* and *Fast Startup* should be listed as unavailable."
 if ($sbReg -eq 1) {
     "- Secure Boot is ON. The Linux installer needs it OFF; re-enable afterwards with custom keys to keep Hello working."
 }

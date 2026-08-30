@@ -1,6 +1,6 @@
 # Hardware report
 
-Generated: 2026-08-29 21:26:17 -07:00
+Generated: 2026-08-29 22:07:04 -07:00
 Elevated: **False**  <- rerun as admin for BitLocker + Secure Boot state
 
 ## System
@@ -68,6 +68,7 @@ Xvdd SCSI Miniport
 Number FriendlyName                    BusType PartitionStyle SizeGB
 ------ ------------                    ------- -------------- ------
      0 WD PC SN7100S SDFPMSL-1T00-1101 NVMe    GPT            953.90
+     1 USB SanDisk 3.2Gen1             USB     MBR             28.70
 ```
 
 ### Partitions
@@ -79,6 +80,7 @@ DiskNumber PartitionNumber DriveLetter Type     SizeGB OffsetGB
          0               2            Reserved   0.02     0.25
          0               3           C Basic    951.65     0.27
          0               4            Recovery   1.95   951.92
+         1               1            Unknown    0.02     5.82
 ```
 
 ### Free space
@@ -86,7 +88,7 @@ DiskNumber PartitionNumber DriveLetter Type     SizeGB OffsetGB
 ```
 DriveLetter FileSystemLabel FileSystem SizeGB FreeGB
 ----------- --------------- ---------- ------ ------
-          C Windows-SSD     NTFS       951.60 714.70
+          C Windows-SSD     NTFS       951.60 725.10
 ```
 
 - **ESP size: 260 MB.** Under ~512 MB is too small for
@@ -210,7 +212,10 @@ USB         Intel(R) USB 3.20 eXtensible Host Controller - 1.20 (Microsoft) PCI\
 
 ## Pre-flight blockers
 
-- Fast Startup / hiberboot: **ON — must disable with `powercfg /h off`**
+- Fast Startup: **off / inoperative** (good) — `HibernateEnabled=0`, hiberfil.sys present: False
+  - `HiberbootEnabled` is still `1`, but that is only a preference flag. Fast
+    Startup cannot run without hibernation, so this is fine. Do not chase it.
+- Verify independently with `powercfg /a`: both *Hibernate* and *Fast Startup* should be listed as unavailable.
 - Secure Boot is ON. The Linux installer needs it OFF; re-enable afterwards with custom keys to keep Hello working.
 
 ---
