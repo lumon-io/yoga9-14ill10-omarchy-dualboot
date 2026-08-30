@@ -32,6 +32,23 @@ Template per attempt — copy the block, don't overwrite previous entries.
 - [ ] Backup — **in progress 2026-08-30**
 - [ ] BIOS updated — queued after the backup
 
+#### Observed: the Secure Boot → VBS chain, both directions
+
+Empirical confirmation of the README's central claim, from this machine:
+
+| State | `UEFISecureBootEnabled` | `VirtualizationBasedSecurityStatus` | `SecurityServicesRunning` |
+|---|---|---|---|
+| Before live boot | 1 | 2 (running) | 2, 3, 4 |
+| Secure Boot off (live USB) | 0 | — VBS cannot launch | — |
+| Back in Windows, SB re-enabled | 1 | 2 (running) | 2, 3, 4 |
+
+VBS returns on its own once Secure Boot is back, and with it ESS and Hello
+biometrics. Nothing needs re-enrolling — this is not a destructive toggle.
+
+**Sequencing note:** do the BIOS update *before* disabling Secure Boot for the
+install. Firmware updates re-enable it, so doing it the other way round means
+turning it off twice.
+
 #### After the BIOS update, re-verify before booting the installer
 
 Firmware updates routinely reset settings to defaults. Check all three:
