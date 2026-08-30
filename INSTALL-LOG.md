@@ -23,10 +23,24 @@ Template per attempt — copy the block, don't overwrite previous entries.
 - [x] BitLocker OFF — `Protection: OFF, Fully decrypted` (confirmed elevated, not inferred)
 - [x] `powercfg /h off` applied — `HibernateEnabled=0`, no `hiberfil.sys`
 - [x] Shrink headroom — 678.11 GB shrinkable, needed 250
-- [ ] BIOS updated  ← still pending; do before Phase 5, updates can clear enrolled keys
-- [ ] Backup taken, Windows recovery USB created  ← **last reversible moment is now**
-- [ ] `bcdedit /enum firmware` saved to `boot-entries-before.txt`
-- [ ] ISH firmware copied out of `C:\Windows\System32\DriverStore\FileRepository`
+- [x] Windows recovery USB created — 2026-08-30
+- [x] `bcdedit /enum firmware` saved (UTF-16 LE, 3376 bytes). Baseline firmware order:
+      `{bootmgr}` (Windows Boot Manager) → EFI USB Device → EFI DVD/CDROM → EFI Network
+- [x] ISH firmware extracted — `ishS_SI_5.8.0.7727.bin` (990.5 KB) and
+      `ishS_MEU_aligned.bin` (514.5 KB), both `$CPD`/`ISHM` images from
+      `FwImage/0003/` (0003 = Lunar Lake). Gitignored, not redistributable.
+- [ ] Backup — **in progress 2026-08-30**
+- [ ] BIOS updated — queued after the backup
+
+#### After the BIOS update, re-verify before booting the installer
+
+Firmware updates routinely reset settings to defaults. Check all three:
+
+1. **Secure Boot is OFF again.** Updates commonly re-enable it, and the installer
+   will not boot with it on.
+2. **`Reset to Setup Mode` still present** under Security → Secure Boot. The whole
+   keep-Windows-Hello plan depends on it.
+3. **Firmware boot order** against the baseline above — updates can reorder it.
 
 ### Shrink — **DONE 2026-08-29 22:43**
 
