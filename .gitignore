@@ -9,3 +9,6 @@ hardware-report.md
 # Windows noise
 Thumbs.db
 desktop.ini
+
+# Live run output - machine-specific, regenerate rather than commit
+live-report.md

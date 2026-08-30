@@ -57,6 +57,27 @@ echo
 hdr "Kernel"
 KREL=$(uname -r); KMAJ=${KREL%%.*}; KMIN=$(echo "$KREL" | cut -d. -f2 | tr -dc '0-9')
 say "Running kernel: \`$KREL\`"
+
+# Catch the wrong-ISO mistake early. Omarchy publishes a T2 Mac variant built on
+# archiso-t2 with the linux-t2 kernel. It boots fine on non-Apple hardware, so the
+# mistake is easy to miss - but installing from it lands a T2 kernel, t2fanrd and
+# Apple audio config on a machine that wants none of it.
+case "$KREL" in
+    *-t2|*-t2-*)
+        result FAIL "This is the Apple T2 Mac ISO (linux-t2 kernel)" \
+                    "wrong image for this laptop - download the standard Omarchy ISO"
+        say ""
+        say "> **Stop here.** \`$KREL\` is the T2 Mac kernel. Installing from this ISO"
+        say "> gives you linux-t2, t2fanrd, Apple Broadcom firmware and T2 audio config"
+        say "> on non-Apple hardware. Get the standard Omarchy ISO and rerun this check."
+        ;;
+    *-arch*|*-lts|*-zen|*-hardened|*-cachyos*)
+        result PASS "Standard Arch kernel flavour" "$KREL"
+        ;;
+    *)
+        result WARN "Unrecognised kernel flavour" "$KREL - confirm you have the right ISO"
+        ;;
+esac
 if [ "$KMAJ" -gt 7 ] || { [ "$KMAJ" -eq 7 ] && [ "$KMIN" -ge 2 ]; }; then
     result PASS "Kernel >= 7.2" "Arc 140V GPU-hang fix present"
 elif [ "$KMAJ" -ge 7 ] || { [ "$KMAJ" -eq 6 ] && [ "$KMIN" -ge 14 ]; }; then
@@ -124,12 +145,19 @@ fi
 
 # ---------------------------------------------------------------- bluetooth --
 hdr "Bluetooth — PCIe (btintel_pcie), unverified prediction"
-if lsmod 2>/dev/null | grep -q btintel_pcie; then
-    result PASS "btintel_pcie loaded"
-elif have hciconfig && hciconfig 2>/dev/null | grep -q hci; then
-    result PASS "Bluetooth adapter present"
+# Check /proc/modules directly rather than relying on lsmod being present, and
+# distinguish "driver missing" from "driver loaded but no adapter registered" -
+# they have completely different fixes.
+BT_MOD=0; BT_DEV=0
+grep -qE '^(btintel_pcie|btintel) ' /proc/modules 2>/dev/null && BT_MOD=1
+[ -d /sys/class/bluetooth ] && [ -n "$(ls -A /sys/class/bluetooth 2>/dev/null)" ] && BT_DEV=1
+have rfkill && rfkill list bluetooth 2>/dev/null | code
+if [ "$BT_DEV" -eq 1 ]; then
+    result PASS "Bluetooth adapter registered" "$(ls /sys/class/bluetooth 2>/dev/null | tr '\n' ' ')"
+elif [ "$BT_MOD" -eq 1 ]; then
+    result WARN "btintel_pcie loaded but no adapter registered" "check rfkill / firmware above"
 else
-    result WARN "No Bluetooth adapter" "was only a 'likely' prediction"
+    result WARN "No Bluetooth driver loaded" "was only a 'likely' prediction"
 fi
 
 # -------------------------------------------------------------------- audio --
@@ -165,9 +193,18 @@ else
     result FAIL "THC module not loaded" "needs kernel >= 6.14 with CONFIG_INTEL_QUICKI2C"
 fi
 [ -r /proc/bus/input/devices ] && grep -iE 'Name=.*(touch|pen|stylus|wacom|elan)' /proc/bus/input/devices | code
-grep -qi 'Name=.*touchscreen' /proc/bus/input/devices 2>/dev/null \
-    && result PASS "Touchscreen input device present" \
-    || result WARN "No touchscreen input device"
+# The wacom driver claims this digitizer and renames the touch node to "Finger",
+# so grepping for the literal word "touchscreen" misses a working touchscreen.
+# Exclude "Touchpad", which is a different device entirely.
+if grep -iE 'Name=.*(touchscreen|finger)' /proc/bus/input/devices 2>/dev/null \
+   | grep -qiv 'touchpad'; then
+    result PASS "Touchscreen input device present" \
+                "$(grep -ioE 'Name="[^"]*(Touchscreen|Finger)[^"]*"' /proc/bus/input/devices 2>/dev/null | head -1)"
+elif dmesg 2>/dev/null | grep -qi 'input:.*touchscreen'; then
+    result PASS "Touchscreen registered per dmesg" "renamed by a claiming driver"
+else
+    result WARN "No touchscreen input device"
+fi
 grep -qiE 'Name=.*(pen|stylus)' /proc/bus/input/devices 2>/dev/null \
     && result PASS "Pen input device present" \
     || result WARN "No pen input device"
@@ -199,6 +236,21 @@ ls /sys/bus/iio/devices/ 2>/dev/null | grep -q . \
 hdr "Firmware load failures"
 dmesg 2>/dev/null | grep -iE 'firmware.*(fail|missing)|direct firmware load.*failed' \
     | sed 's/^/  /' | sort -u | head -30 | code
+
+hdr "Kernel warnings / oops"
+say "> A \`Modules linked in:\` line in dmesg means the kernel hit a WARNING or BUG."
+say "> The trace above it names the subsystem that faulted."
+if dmesg 2>/dev/null | grep -qE 'WARNING:|BUG:|Oops:|Call Trace:|Modules linked in:'; then
+    dmesg 2>/dev/null | grep -nE 'WARNING:|BUG:|Oops:|Call Trace:' | head -20 | code
+    result WARN "Kernel warning or oops in dmesg" "see trace above"
+    say ""
+    say "Capture the full trace with:"
+    say "\`\`\`"
+    say "dmesg | grep -B30 'Modules linked in' | head -60"
+    say "\`\`\`"
+else
+    result PASS "No kernel warnings or oops in dmesg"
+fi
 
 # ------------------------------------------------------------------ verdict --
 hdr "Decision gate"
