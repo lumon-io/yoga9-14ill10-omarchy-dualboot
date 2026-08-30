@@ -42,6 +42,9 @@ case "${1:-check}" in
     go|enroll|sign)
         exec bash "$DIR/enroll-secureboot.sh"
         ;;
+    unsign|fixhash)
+        exec bash "$DIR/unsign-boot.sh"
+        ;;
     *)
         cat <<'USAGE'
 
