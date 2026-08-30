@@ -58,24 +58,23 @@ hdr "Kernel"
 KREL=$(uname -r); KMAJ=${KREL%%.*}; KMIN=$(echo "$KREL" | cut -d. -f2 | tr -dc '0-9')
 say "Running kernel: \`$KREL\`"
 
-# Catch the wrong-ISO mistake early. Omarchy publishes a T2 Mac variant built on
-# archiso-t2 with the linux-t2 kernel. It boots fine on non-Apple hardware, so the
-# mistake is easy to miss - but installing from it lands a T2 kernel, t2fanrd and
-# Apple audio config on a machine that wants none of it.
+# There is ONE Omarchy ISO and it boots the linux-t2 kernel, so a single image works
+# on both T2 Macs and ordinary PCs. Seeing -t2 here is correct and expected - it does
+# NOT mean you downloaded a Mac-specific build. The installed system gets stock
+# `linux` from builder/archinstall.packages, not linux-t2.
 case "$KREL" in
     *-t2|*-t2-*)
-        result FAIL "This is the Apple T2 Mac ISO (linux-t2 kernel)" \
-                    "wrong image for this laptop - download the standard Omarchy ISO"
+        result PASS "Omarchy live kernel (linux-t2)" "expected - one ISO boots Macs and PCs alike"
         say ""
-        say "> **Stop here.** \`$KREL\` is the T2 Mac kernel. Installing from this ISO"
-        say "> gives you linux-t2, t2fanrd, Apple Broadcom firmware and T2 audio config"
-        say "> on non-Apple hardware. Get the standard Omarchy ISO and rerun this check."
+        say "> \`-t2\` is the Omarchy ISO's live kernel, not a wrong download. The"
+        say "> **installed** system gets stock \`linux\`, so the kernel version gate below"
+        say "> applies to the live environment only — recheck \`uname -r\` after install."
         ;;
     *-arch*|*-lts|*-zen|*-hardened|*-cachyos*)
         result PASS "Standard Arch kernel flavour" "$KREL"
         ;;
     *)
-        result WARN "Unrecognised kernel flavour" "$KREL - confirm you have the right ISO"
+        result WARN "Unrecognised kernel flavour" "$KREL"
         ;;
 esac
 if [ "$KMAJ" -gt 7 ] || { [ "$KMAJ" -eq 7 ] && [ "$KMIN" -ge 2 ]; }; then
@@ -161,15 +160,34 @@ else
 fi
 
 # -------------------------------------------------------------------- audio --
-hdr "Audio — CS42L43 + CS35L56 (EXPECTED TO FAIL)"
-say "> Silent speakers here are the **predicted** result, not a reason to abort."
-say "> Root cause is a missing ALSA UCM CardLongName matcher, fixable post-install."
+hdr "Audio — CS42L43 + CS35L56 (NOT TESTABLE FROM THE LIVE ISO)"
+# The Omarchy ISO ships /etc/modprobe.d/blacklist-panther-lake-audio.conf, which
+# blacklists snd_sof_pci_intel_lnl, soundwire_intel and snd_soc_cs35l56* to avoid
+# boot failures on Panther Lake machines. That blacklist is in the live filesystem
+# only - the installed system gets sof-firmware and pipewire with no blacklist. So
+# "no soundcards" here says nothing about whether audio works after installing.
+SOF_BLACKLISTED=0
+if grep -rqs 'blacklist.*snd_sof\|blacklist.*soundwire_intel' /etc/modprobe.d/ 2>/dev/null; then
+    SOF_BLACKLISTED=1
+    result WARN "SOF modules blacklisted by the live ISO" "audio cannot be evaluated here"
+    say "> **The live ISO blacklists SOF audio on purpose.** Found in \`/etc/modprobe.d/\`:"
+    say ""
+    grep -rhs 'blacklist' /etc/modprobe.d/*audio* 2>/dev/null | head -20 | code
+    say "> This is a live-environment workaround for Panther Lake boot failures, not a"
+    say "> hardware fault. The installed system has no such blacklist. **Re-test audio"
+    say "> after installing** — that is the only run that means anything."
+else
+    say "> Silent speakers here are the **predicted** result, not a reason to abort."
+    say "> Root cause is a missing ALSA UCM CardLongName matcher, fixable post-install."
+fi
 say ""
 [ -r /proc/asound/cards ] && cat /proc/asound/cards | code
 have aplay && aplay -l 2>/dev/null | code
 dmesg 2>/dev/null | grep -iE 'sof|cs42l43|cs35l56|soundwire' | tail -30 | code
 if [ -r /proc/asound/cards ] && grep -qi 'sof\|soundwire' /proc/asound/cards 2>/dev/null; then
     result PASS "SOF SoundWire card enumerated"
+elif [ "$SOF_BLACKLISTED" -eq 1 ]; then
+    say "- (no card enumerated, as expected while SOF is blacklisted — not counted)"
 else
     result WARN "No SOF card enumerated"
 fi

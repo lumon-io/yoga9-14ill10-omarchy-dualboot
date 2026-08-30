@@ -33,10 +33,17 @@ Template per attempt — copy the block, don't overwrite previous entries.
 Boot the Omarchy ISO and check. This is the cheap, zero-risk verification pass —
 everything here is a research prediction until ticked.
 
-**Run 1 — 2026-08-29 22:24 UTC. PASS 11 · WARN 5 · FAIL 0.**
-Kernel `7.1.8-arch1-Watanare-T2-2-t2` — **wrong ISO, this is the Apple T2 Mac image.**
-Results below are still informative (linux-t2 is Arch plus Apple patches) but must be
-re-run on the standard Omarchy ISO before they count.
+**Run 1 — 2026-08-29 22:24 UTC. PASS 11 · WARN 5 · FAIL 0. Valid run.**
+Kernel `7.1.8-arch1-Watanare-T2-2-t2`.
+
+> **Correction.** This was first read as the wrong ISO. It is not. There is one
+> Omarchy ISO and it boots the **linux-t2** kernel so a single image works on both
+> T2 Macs and ordinary PCs — `configs/airootfs/etc/mkinitcpio.d/linux-t2.preset`
+> in `omacom-io/omarchy-iso`. The **installed** system gets stock `linux` from
+> `builder/archinstall.packages`. Seeing `-t2` live is correct.
+>
+> The live kernel being 7.1.8 (below the 7.2 Arc freeze fix) therefore says nothing
+> about the installed system. Recheck `uname -r` after install.
 
 | Test | Predicted | Actual (run 1) | Notes |
 |---|---|---|---|
@@ -44,7 +51,7 @@ re-run on the standard Omarchy ISO before they count.
 | Wi-Fi BE201 | yes | **PASS** | `iwlwifi` loaded, firmware clean, `wlan0` up. Not associated, so no internet test |
 | Bluetooth adapter | likely | **inconclusive** | `btintel_pcie` present in `Modules linked in:` but no adapter registered. Checker bug — now distinguishes driver-loaded from adapter-registered |
 | GPU | yes on ≥7.2 | **PASS (driver)** | `xe` bound to `8086:64a0`, DMC firmware v2.29 loaded. Kernel is 7.1.8 — **below the 7.2 freeze fix**; no load test done |
-| Speakers audible | no — UCM fix | **WORSE than predicted** | `--- no soundcards ---`. No SOF modules loaded at all, not a UCM matcher problem. Suspect the T2 ISO ships no `sof-firmware` |
+| Speakers audible | no — UCM fix | **NOT TESTABLE** | `--- no soundcards ---`, but the ISO ships `/etc/modprobe.d/blacklist-panther-lake-audio.conf` blacklisting `snd_sof_pci_intel_lnl`, `soundwire_intel` and `snd_soc_cs35l56*`. Live-filesystem only; installed system gets `sof-firmware` + `pipewire` unblacklisted. **Audio verdict deferred to post-install** |
 | Touchscreen | yes (quicki2c) | **PASS** | `quicki2c-hid 056A:53E6 Touchscreen` registered; wacom renames it "Finger". Reported a false WARN — checker fixed |
 | Pen | yes | **PASS** | `Wacom quicki2c-hid 056A:53E6 Pen`. Wacom AES digitizer, vendor `056A` |
 | Touchpad | yes | **PASS** | `ELAN06FA:00 04F3:3293 Touchpad` via `hid-multitouch` |
