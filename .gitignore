@@ -15,3 +15,6 @@ live-report.md
 
 # Elevated pre-flight output - machine-specific
 preflight-report.txt
+
+# Intel proprietary firmware blobs - extracted per-machine, not ours to redistribute
+ish-firmware/
