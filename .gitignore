@@ -1,0 +1,11 @@
+# Contains BCD entry GUIDs from the local machine — machine-identifying, do not publish
+boot-entries-before.txt
+
+# Default output name from collect-hardware.ps1's example usage; regenerate rather
+# than commit ad-hoc runs, and never commit output made with -IncludePaired
+hardware-report.md
+*.local.md
+
+# Windows noise
+Thumbs.db
+desktop.ini
