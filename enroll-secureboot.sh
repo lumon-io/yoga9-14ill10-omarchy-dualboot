@@ -241,6 +241,28 @@ else
     ylw "  absent : $MS_2011 - fine, it is not what signs your bootmgfw"
 fi
 
+# Our OWN key has to be in db too, or every signature we make chains to nothing.
+# Checking only for Microsoft's CAs is worthless here: the factory db already
+# contains them, so a firmware that discarded our keys still passes that test.
+# This machine does exactly that - see assumption 1 in INSTALL-LOG.md.
+if grep -qa 'Database Key' "$dbf"; then
+    grn "  present: your own sbctl key (CN=Database Key)"
+else
+    red "  MISSING: your own sbctl key is NOT in db."
+    red "  Signing would produce binaries the firmware cannot validate."
+    ylw "  The firmware has discarded your enrolled keys."
+    exit 1
+fi
+
+# Byte-identical to the factory set is the signature of a firmware that
+# re-provisions defaults rather than one that merely ignored the enrollment.
+dbdef=$(efivar_path dbDefault)
+if [ -f "$dbdef" ] && cmp -s -i 4:4 "$dbf" "$dbdef"; then
+    red "  db is byte-identical to dbDefault."
+    red "  The firmware restored its factory keys and dropped yours."
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Sign. Two things need our signature, for different reasons:
 #   - Limine's EFI binary: the firmware LoadImage()s it directly.

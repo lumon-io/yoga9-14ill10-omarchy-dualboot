@@ -233,6 +233,45 @@ That is exactly the trade the custom-key plan exists to dissolve. Procedure live
 - [ ] **Windows Hello face + fingerprint working again**
 - [ ] `VirtualizationBasedSecurityStatus = 2` confirmed in Windows
 
+### The actual fix: "Enhanced Windows Biometric Security" in BIOS
+
+Since custom keys cannot persist, the trade-off has to be dissolved from the Windows
+side instead. **BIOS (F2) → Security → Enhanced Windows Biometric Security → Disabled.**
+
+That option *is* Enhanced Sign-in Security. Its own help text says so:
+
+> `[Enabled]` Enhanced sign-in security is enabled.
+> `[Disabled]` Enhanced sign-in security is disabled.
+
+With ESS off, Hello's face and fingerprint fall back to the pre-ESS path, which does
+not use a VBS enclave and therefore does not need Secure Boot. So:
+
+| | Secure Boot | Limine | Windows | Hello face/print |
+|---|---|---|---|---|
+| ESS on (factory) | must be **on** | rejected | boots | works |
+| ESS on (factory) | **off** | works | works | **broken** |
+| **ESS off** | **off** | works | works | **works** |
+
+**What this costs, stated plainly.** This is a real security reduction, not a free win:
+
+- Biometric templates and matching leave the VTL1 enclave and run in the normal kernel.
+  This is how Windows Hello worked before ESS existed. The credential is still
+  TPM-bound, but the isolation is gone.
+- Running with Secure Boot off separately costs you **VBS, HVCI/memory integrity, and
+  Credential Guard**. That loss is unrelated to ESS and is the price of booting Limine.
+
+If either matters more than a single boot menu, the alternative is to leave everything
+at factory and **toggle Secure Boot in BIOS per OS** — on for Windows, off for Omarchy.
+Fully secure, and genuinely tedious.
+
+- [ ] ESS disabled in BIOS
+- [ ] Hello face + fingerprint re-enrolled and working with Secure Boot off
+- [ ] Both OSes boot from the Limine menu
+
+> Expect to **re-enroll face and fingerprint** after changing this. Windows generally
+> invalidates existing biometric enrollments when the ESS state changes, since the
+> templates were sealed to the enclave. The PIN is unaffected.
+
 ### Post-install fixes applied
 
 - Audio UCM matcher:
@@ -250,11 +289,43 @@ These are the places the research could be wrong. Ranked by how much damage a wr
 answer does.
 
 1. ~~**Lenovo consumer BIOS supports custom Secure Boot key enrollment.**~~
-   **RESOLVED 2026-08-29 — verified in BIOS Q9CN30WW.** Security → Secure Boot offers
-   **"Reset to Setup Mode"** ("Clear PK, disable secure boot and enter Setup Mode"),
-   which is exactly what `sbctl` requires, plus **"Restore Factory Keys"** as rollback.
-   Note there is no "Custom" Secure Boot Mode on this firmware — Standard/User Mode is
-   all it exposes, and that is fine. The keep-Windows-Hello plan is viable.
+   **RESOLVED 2026-08-30 — NO. Enrollment works but does not persist. The custom-key
+   plan is dead on this machine.**
+
+   The BIOS does offer **"Reset to Setup Mode"**, `sbctl` does enter Setup Mode, and
+   enrollment genuinely succeeds — `sbctl` reports *"Enrolled keys to the EFI
+   variables!"* and signing works. **The keys are gone by the next boot.**
+
+   What the earlier note got wrong: it observed there is no "Custom" Secure Boot Mode,
+   only Standard, and concluded *"that is fine."* It is not. On this Insyde firmware
+   **Standard Mode means re-provision the factory key set** — `PK`/`KEK`/`db` are
+   restored from the `*Default` variables on boot. There is no window in which custom
+   keys survive.
+
+   Measured after a reboot, with Secure Boot still **off**, so this is not something
+   the enable step did:
+
+   | Variable | Size | Content |
+   |---|---|---|
+   | `PK` | 852 B | `Trust - Lenovo Certificate` — factory, **not ours** |
+   | `db` | 7237 B | **byte-identical to `dbDefault`** |
+   | `KEK` | 3066 B | identical to `KEKDefault` |
+
+   `sbctl status` corroborated it at the time by reporting `Vendor Keys: … builtin-PK`.
+   Read from the Windows side with `Get-SecureBootUEFI -Name PK|KEK|db`.
+
+   The binaries themselves were signed correctly — both `limine_x64.efi` and
+   `omarchy_linux.efi` carry `CN=Database Key` — so the failure is purely that the
+   firmware discarded the key those signatures chain to.
+
+   **This invalidated the project's original premise.** See "Enhanced Windows Biometric
+   Security" below for what actually solves it.
+
+1b. **The verification gate that missed it.** `enroll-secureboot.sh` originally checked
+   only that *Microsoft's* CAs were in `db`. The factory `db` contains those, so a
+   firmware that had thrown away our key still passed, and the script went on to sign
+   two binaries against a key that no longer existed. It now also requires
+   `CN=Database Key` to be present and refuses if `db` is byte-identical to `dbDefault`.
 2. ~~**Omarchy tolerates a separate 2 GB ESP-flagged boot partition.**~~
    **RESOLVED 2026-08-30 — yes.** `nvme0n1p5` (`OMARCHY_EFI`, 2 GB) is mounted at
    `/boot` and boots. The installer had no trouble with it.
