@@ -211,11 +211,25 @@ bar. GPU-under-load remains untested and is still the open risk.
 
 ### Secure Boot re-enable
 
-- [ ] BIOS supports Custom Mode / clearing keys on this Lenovo BIOS **(unverified — first real test)**
+Observed state after install, before any key enrollment — both directions confirmed:
+
+| Secure Boot | Limine | Windows | Windows Hello |
+|---|---|---|---|
+| **ON** | rejected (unsigned) | boots normally, direct via `Boot0002` | face + fingerprint work |
+| **OFF** | boots, both entries offered | boots | **face + fingerprint disabled**, PIN only |
+
+That is exactly the trade the custom-key plan exists to dissolve. Procedure lives in
+`enroll-secureboot.sh` — run it once normally, once after Setup Mode.
+
+- [x] BIOS supports clearing keys on this Lenovo BIOS — *Reset to Setup Mode*, verified 2026-08-29
+- [x] Identified the CA that signs `bootmgfw.efi` — **Windows UEFI CA 2023** (see assumption 6)
+- [ ] Original `PK`/`KEK`/`db`/`dbx` backed up to `/var/lib/sbctl-backup`
 - [ ] `sbctl status` showed Setup Mode enabled
-- [ ] `sbctl enroll-keys -m` succeeded
-- [ ] Limine signed, `sbctl verify` clean
-- [ ] Secure Boot re-enabled, both OSes still boot
+- [ ] `sbctl enroll-keys -m -f db,KEK` succeeded
+- [ ] `db` re-checked post-enrollment: still contains `Windows UEFI CA 2023`
+- [ ] Limine **and the UKI** signed, `sbctl verify` clean
+- [ ] Secure Boot re-enabled, Omarchy still boots
+- [ ] Secure Boot re-enabled, Windows still boots
 - [ ] **Windows Hello face + fingerprint working again**
 - [ ] `VirtualizationBasedSecurityStatus = 2` confirmed in Windows
 
@@ -254,20 +268,55 @@ answer does.
    driver present, no adapter registered. Recheck on the correct ISO.
 5. ~~**BitLocker is off.**~~ **RESOLVED 2026-08-29** — confirmed elevated:
    `Protection: OFF, Fully decrypted`.
-6. **`sbctl enroll-keys -m` enrolls a Microsoft cert that can actually validate THIS
-   Windows Boot Manager.** ← new, and the one that can leave Windows unbootable.
-   Run 1's dmesg shows the firmware db carries **two** Microsoft certs:
+6. ~~**`sbctl enroll-keys -m` enrolls a Microsoft cert that can actually validate THIS
+   Windows Boot Manager.**~~ **RESOLVED 2026-08-30 — the risk is REAL. `-m` alone is
+   not enough on this machine.**
+
+   Run 1's dmesg showed the firmware db carries **two** Microsoft certs:
 
    ```
    integrity: Loaded X.509 cert 'Microsoft Windows Production PCA 2011: a929023...'
    integrity: Loaded X.509 cert 'Microsoft Corporation: Windows UEFI CA 2023: aefc5fb...'
    ```
 
-   Microsoft is migrating bootloader signing from the 2011 PCA to the **Windows UEFI
-   CA 2023**. This machine runs Windows 11 Insider build 26300, so its Boot Manager may
-   well be signed by the 2023 CA. If sbctl's bundled Microsoft certs are 2011-only,
-   enrolling them and turning Secure Boot on would leave **Windows refusing to boot**.
+   Measured from Windows which one actually matters, elevated, ESP mounted at `S:`:
 
-   Before Phase 5: check which CA signed the bootloader, and consider
-   `sbctl enroll-keys -m --firmware-builtin` (or equivalent) to also carry over the
-   certs already in the firmware db. Rollback is *Restore Factory Keys* in BIOS.
+   ```powershell
+   mountvol S: /s
+   Get-AuthenticodeSignature S:\EFI\Microsoft\Boot\bootmgfw.efi
+   ```
+
+   | Field | Value |
+   |---|---|
+   | Status | `Valid` |
+   | Signer | `CN=Microsoft Windows, O=Microsoft Corporation, …` |
+   | **Issuer** | **`CN=Windows UEFI CA 2023, O=Microsoft Corporation, C=US`** |
+   | Root | `CN=Microsoft Root Certificate Authority 2010` |
+
+   So this Boot Manager chains to the **2023 CA**, not the 2011 PCA. Enrolling a
+   2011-only Microsoft bundle and turning Secure Boot on would leave **Windows
+   refusing to boot**.
+
+   **Mitigation, implemented in `enroll-secureboot.sh`:** enroll the firmware's own
+   built-in databases alongside sbctl's keys —
+
+   ```bash
+   sbctl enroll-keys -m -f db,KEK
+   ```
+
+   `-f db,KEK` copies `dbDefault`/`KEKDefault`, which carry both Microsoft CAs.
+   Keeping Microsoft's **KEK** matters for a second reason: without it Windows can
+   no longer deliver signed `dbx` revocation updates.
+
+   The script proves the 2023 CA is present *before* enrolling and re-checks `db`
+   *after*, refusing to continue if it is missing. It also backs up `PK`/`KEK`/`db`/
+   `dbx` to `/var/lib/sbctl-backup` first. Rollback remains *Restore Factory Keys*
+   in BIOS, or simply disabling Secure Boot.
+
+7. **Signing Limine is not sufficient — the UKI needs signing too.** Omarchy boots
+   `/boot/EFI/Linux/omarchy_linux.efi` and Limine loads it with `protocol: efi`,
+   which is a firmware `LoadImage()` call and therefore subject to Secure Boot
+   validation. Signing only the bootloader yields a Limine menu that then refuses
+   to start Linux. `enroll-secureboot.sh` signs every `.efi` under `/boot/EFI`
+   except `EFI/Microsoft/`, using `sbctl sign -s` so the pacman hook re-signs after
+   kernel and Limine upgrades.
