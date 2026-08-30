@@ -243,6 +243,7 @@ the Linux side can pick up from `SPEC.md` and `INSTALL-LOG.md` with no lost cont
 | `SPEC.md` | The step-by-step install procedure |
 | `HARDWARE.md` | Full generated hardware report from the reference machine |
 | `collect-hardware.ps1` | Read-only collector; run on your machine to compare |
+| `preflight-check.ps1` | **Elevated** Windows pre-flight: BitLocker, shrink headroom, Fast Startup |
 | `LIVE-QUICKSTART.md` | Four commands to run from the live USB |
 | `live-usb-check.sh` | Read-only hardware check to run from the live USB |
 | `INSTALL-LOG.md` | Actual results, filled in during the install |
