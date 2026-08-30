@@ -198,16 +198,90 @@ say "touchscreen works. Audio and auto-rotate are expected to fail here."
 say ""
 say "**PASS: $PASS · WARN: $WARN · FAIL: $FAIL**"
 
+# ------------------------------------------------- deliver back to Windows ---
+# The report is useless if it dies with the live session. Copy it onto the
+# Windows NTFS partition so it is simply sitting there after you reboot.
+#
+# Safety: refuses to mount read-write if the volume is hibernated or unclean.
+# Turn Fast Startup off in Windows first (powercfg /h off), or this correctly
+# declines rather than risking your filesystem.
+deliver_to_windows() {
+    local part mnt=/tmp/winmount dest
+    part=$(lsblk -rno NAME,FSTYPE,SIZE 2>/dev/null \
+           | awk '$2=="ntfs" {print $1; exit}')
+    [ -z "$part" ] && { echo "  [skip] no NTFS partition found"; return 1; }
+    part=/dev/$part
+
+    if have ntfsfix && ntfsfix --no-action "$part" 2>&1 | grep -qi 'hibernated\|dirty\|unclean'; then
+        echo "  [SKIP] $part is hibernated or unclean - NOT mounting."
+        echo "         Boot Windows, run 'powercfg /h off', shut down fully, retry."
+        return 1
+    fi
+
+    # If you already mounted it by hand (likely, since this script lives there),
+    # reuse that mount instead of failing on a second mount of the same device.
+    local we_mounted=0 existing
+    existing=$(findmnt -nro TARGET -S "$part" 2>/dev/null | head -1)
+    if [ -n "$existing" ]; then
+        mnt="$existing"
+        if ! mount -o remount,rw "$mnt" 2>/dev/null; then
+            echo "  [skip] $part is mounted read-only at $mnt and remount failed"
+            return 1
+        fi
+    else
+        mkdir -p "$mnt" 2>/dev/null
+        if ! mount -t ntfs3 -o rw "$part" "$mnt" 2>/dev/null \
+          && ! mount -o rw "$part" "$mnt" 2>/dev/null; then
+            echo "  [skip] could not mount $part read-write"
+            rmdir "$mnt" 2>/dev/null; return 1
+        fi
+        we_mounted=1
+    fi
+
+    dest=$(find "$mnt/Users" -maxdepth 2 -type d -name 'omarchy-dualboot' 2>/dev/null | head -1)
+    [ -z "$dest" ] && dest=$(find "$mnt/Users" -maxdepth 1 -mindepth 1 -type d \
+        ! -name 'Public' ! -name 'Default*' ! -name 'All Users' 2>/dev/null | head -1)
+    [ -z "$dest" ] && dest="$mnt"
+
+    # Only tear down a mount we created; leave a pre-existing one as we found it.
+    cleanup_mount() {
+        sync
+        if [ "$we_mounted" -eq 1 ]; then
+            umount "$mnt" 2>/dev/null; rmdir "$mnt" 2>/dev/null
+        else
+            mount -o remount,ro "$mnt" 2>/dev/null
+        fi
+    }
+
+    if cp "$OUT" "$dest/live-report.md" 2>/dev/null; then
+        echo "  [OK] Report copied into Windows at:"
+        echo "       ${dest#$mnt}/live-report.md"
+        cleanup_mount
+        return 0
+    fi
+    cleanup_mount
+    echo "  [skip] could not write to $dest"
+    return 1
+}
+
 echo
 echo "  ---------------------------------------------"
 printf '  PASS: %d   WARN: %d   FAIL: %d\n' "$PASS" "$WARN" "$FAIL"
 echo "  ---------------------------------------------"
 echo
 echo "  Report written to: $OUT"
-echo "  Copy it somewhere that survives reboot, then hand it to Claude."
+echo
+echo "  Delivering report to the Windows partition..."
+if [ "$(id -u)" -eq 0 ]; then
+    deliver_to_windows || echo "  Fallback: copy $OUT to a USB stick by hand."
+else
+    echo "  [skip] not root - rerun with: sudo bash $0"
+fi
 echo
 if [ "$FAIL" -eq 0 ]; then
     echo "  No blocking failures. Manually confirm touch + pen, then proceed."
 else
-    echo "  $FAIL blocking failure(s) — review the report before installing."
+    echo "  $FAIL blocking failure(s) - review the report before installing."
 fi
+echo
+echo "  Reboot into Windows and the report will be waiting for Claude."
