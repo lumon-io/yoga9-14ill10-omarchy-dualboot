@@ -18,15 +18,26 @@ Template per attempt — copy the block, don't overwrite previous entries.
 | alsa-lib version | |
 | Outcome | not started |
 
-### Pre-flight
+### Pre-flight — **DONE 2026-08-29 22:42**, verdict CLEAR
 
-- [ ] `manage-bde -status C:` shows Protection Off
-- [ ] `powercfg /h off` applied
-- [ ] `Get-PartitionSupportedSize -DriveLetter C` allows the intended shrink
-- [ ] BIOS updated
-- [ ] Backup taken, Windows recovery USB created
+- [x] BitLocker OFF — `Protection: OFF, Fully decrypted` (confirmed elevated, not inferred)
+- [x] `powercfg /h off` applied — `HibernateEnabled=0`, no `hiberfil.sys`
+- [x] Shrink headroom — 678.11 GB shrinkable, needed 250
+- [ ] BIOS updated  ← still pending; do before Phase 5, updates can clear enrolled keys
+- [ ] Backup taken, Windows recovery USB created  ← **last reversible moment is now**
 - [ ] `bcdedit /enum firmware` saved to `boot-entries-before.txt`
 - [ ] ISH firmware copied out of `C:\Windows\System32\DriverStore\FileRepository`
+
+### Shrink — **DONE 2026-08-29 22:43**
+
+| | Before | After |
+|---|---|---|
+| C: | 951.65 GB | **701.65 GB** |
+| Unallocated | none | **250.00 GB** @ 701.92–951.92 GB |
+| Recovery | 951.92–953.87 GB | untouched |
+
+C: healthy, 467.97 GB free. Gap is contiguous and sits between C: and Recovery,
+exactly as planned — no partition move was needed.
 
 ### Live USB test (before writing anything to disk)
 
@@ -120,7 +131,8 @@ answer does.
 3. **Limine detects Windows on a separate ESP.** Reported to fail sometimes.
 4. **Bluetooth `btintel_pcie` works on this exact adapter.** Run 1 was inconclusive:
    driver present, no adapter registered. Recheck on the correct ISO.
-5. **BitLocker is off.** Inferred from a registry hint, not confirmed.
+5. ~~**BitLocker is off.**~~ **RESOLVED 2026-08-29** — confirmed elevated:
+   `Protection: OFF, Fully decrypted`.
 6. **`sbctl enroll-keys -m` enrolls a Microsoft cert that can actually validate THIS
    Windows Boot Manager.** ← new, and the one that can leave Windows unbootable.
    Run 1's dmesg shows the firmware db carries **two** Microsoft certs:
